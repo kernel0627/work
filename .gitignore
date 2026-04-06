@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pt
+*.pth
+*.7z
+*.zip
+logs/
+runs/
+eval_results/
+datasets/

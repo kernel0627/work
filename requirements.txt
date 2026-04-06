@@ -1,0 +1,9 @@
+open_clip_torch>=2.24.0
+scikit-learn>=1.4
+pillow>=10.0
+numpy>=1.26
+matplotlib>=3.8
+pandas>=2.2
+tqdm>=4.66
+gdown>=5.2.0
+pyyaml>=6.0.2
