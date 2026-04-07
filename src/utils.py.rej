@@ -1,0 +1,32 @@
+diff a/src/utils.py b/src/utils.py	(rejected hunks)
+@@ -130,6 +168,7 @@
+     epoch: int,
+     best_metric: float,
+     extra: Optional[dict] = None,
++    ema_state: Optional[dict] = None,
+ ) -> None:
+     ckpt = {
+         'model': model.state_dict(),
+@@ -142,10 +181,12 @@
+         ckpt['scaler'] = scaler.state_dict()
+     if extra is not None:
+         ckpt['extra'] = extra
++    if ema_state is not None:
++        ckpt['ema'] = ema_state
+     torch.save(ckpt, path)
+ 
+ 
+-def load_checkpoint(path: str | Path, model=None, optimizer=None, scaler=None, map_location='cpu') -> dict:
++def load_checkpoint(path: str | Path, model=None, optimizer=None, scaler=None, ema=None, map_location='cpu') -> dict:
+     ckpt = torch.load(path, map_location=map_location)
+     if model is not None:
+         model.load_state_dict(ckpt['model'], strict=True)
+@@ -153,6 +194,8 @@
+         optimizer.load_state_dict(ckpt['optimizer'])
+     if scaler is not None and 'scaler' in ckpt:
+         scaler.load_state_dict(ckpt['scaler'])
++    if ema is not None and 'ema' in ckpt:
++        ema.load_state_dict(ckpt['ema'])
+     return ckpt
+ 
+ 

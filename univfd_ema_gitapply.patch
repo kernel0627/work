@@ -1,0 +1,179 @@
+--- a/src/utils.py
++++ b/src/utils.py
+@@ -122,6 +122,44 @@
+     return best_t
+ 
+ 
++
++class ModelEMA:
++    def __init__(self, model: torch.nn.Module, decay: float = 0.9999, device: str | torch.device | None = None) -> None:
++        self.decay = float(decay)
++        self.ema_model = self._clone_model(model)
++        if device is not None:
++            self.ema_model.to(device=device)
++        self.ema_model.eval()
++
++    @staticmethod
++    def _clone_model(model: torch.nn.Module) -> torch.nn.Module:
++        import copy
++        ema_model = copy.deepcopy(model)
++        ema_model.eval()
++        for p in ema_model.parameters():
++            p.requires_grad_(False)
++        return ema_model
++
++    @torch.no_grad()
++    def update(self, model: torch.nn.Module) -> None:
++        msd = model.state_dict()
++        for k, ema_v in self.ema_model.state_dict().items():
++            model_v = msd[k].detach()
++            if not torch.is_floating_point(ema_v):
++                ema_v.copy_(model_v)
++            else:
++                ema_v.mul_(self.decay).add_(model_v, alpha=1.0 - self.decay)
++
++    def state_dict(self) -> dict:
++        return {
++            'decay': self.decay,
++            'model': self.ema_model.state_dict(),
++        }
++
++    def load_state_dict(self, state: dict) -> None:
++        self.decay = float(state.get('decay', self.decay))
++        self.ema_model.load_state_dict(state['model'], strict=True)
++
+ def save_checkpoint(
+     path: str | Path,
+     model: torch.nn.Module,
+@@ -130,6 +168,7 @@
+     epoch: int,
+     best_metric: float,
+     extra: Optional[dict] = None,
++    ema_state: Optional[dict] = None,
+ ) -> None:
+     ckpt = {
+         'model': model.state_dict(),
+@@ -142,10 +181,12 @@
+         ckpt['scaler'] = scaler.state_dict()
+     if extra is not None:
+         ckpt['extra'] = extra
++    if ema_state is not None:
++        ckpt['ema'] = ema_state
+     torch.save(ckpt, path)
+ 
+ 
+-def load_checkpoint(path: str | Path, model=None, optimizer=None, scaler=None, map_location='cpu') -> dict:
++def load_checkpoint(path: str | Path, model=None, optimizer=None, scaler=None, ema=None, map_location='cpu') -> dict:
+     ckpt = torch.load(path, map_location=map_location)
+     if model is not None:
+         model.load_state_dict(ckpt['model'], strict=True)
+@@ -153,6 +194,8 @@
+         optimizer.load_state_dict(ckpt['optimizer'])
+     if scaler is not None and 'scaler' in ckpt:
+         scaler.load_state_dict(ckpt['scaler'])
++    if ema is not None and 'ema' in ckpt:
++        ema.load_state_dict(ckpt['ema'])
+     return ckpt
+ 
+ 
+--- a/src/train.py
++++ b/src/train.py
+@@ -22,6 +22,7 @@
+     find_best_threshold,
+     gpu_mem_mb,
+     load_checkpoint,
++    ModelEMA,
+     plot_history,
+     reset_gpu_peak_memory,
+     save_checkpoint,
+@@ -88,6 +89,9 @@
+     p.add_argument('--resume', type=str, default=None)
+     p.add_argument('--save-every', type=int, default=1)
+     p.add_argument('--patience', type=int, default=5)
++    p.add_argument('--ema', action='store_true')
++    p.add_argument('--ema-decay', type=float, default=0.9998)
++    p.add_argument('--ema-cpu', action='store_true')
+     return p.parse_args()
+ 
+ 
+@@ -157,12 +161,13 @@
+     trainable = [p for p in model.parameters() if p.requires_grad]
+     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
+     scaler = torch.cuda.amp.GradScaler(enabled=args.amp and device.type == 'cuda')
++    ema = ModelEMA(model, decay=args.ema_decay, device='cpu' if args.ema_cpu else device) if args.ema else None
+ 
+     start_epoch = 0
+     best_ap = -1.0
+     epochs_no_improve = 0
+     if args.resume:
+-        ckpt = load_checkpoint(args.resume, model=model, optimizer=optimizer, scaler=scaler, map_location=device)
++        ckpt = load_checkpoint(args.resume, model=model, optimizer=optimizer, scaler=scaler, ema=ema, map_location=device)
+         start_epoch = int(ckpt.get('epoch', 0)) + 1
+         best_ap = float(ckpt.get('best_metric', -1.0))
+         extra = ckpt.get('extra', {})
+@@ -178,6 +183,9 @@
+         'val_categories': parse_csv_arg(args.val_categories),
+         'limit_real': args.limit_real,
+         'limit_fake': args.limit_fake,
++        'ema_enabled': bool(args.ema),
++        'ema_decay': float(args.ema_decay),
++        'ema_device': 'cpu' if args.ema_cpu else str(device),
+     }
+     save_json(reports_dir / 'meta.json', meta)
+     logger.info(f'meta={meta}')
+@@ -203,6 +211,8 @@
+             scaler.scale(loss).backward()
+             scaler.step(optimizer)
+             scaler.update()
++            if ema is not None:
++                ema.update(model)
+ 
+             bs = images.size(0)
+             running_loss += float(loss.item()) * bs
+@@ -213,7 +223,8 @@
+         train_loss = running_loss / max(n_seen, 1)
+ 
+         eval_start = time.time()
+-        val_metrics = evaluate(model, val_loader, device, args.amp)
++        eval_model = ema.ema_model if ema is not None else model
++        val_metrics = evaluate(eval_model, val_loader, device, args.amp)
+         eval_seconds = time.time() - eval_start
+         total_seconds = time.time() - epoch_start
+         lr = float(optimizer.param_groups[0]['lr'])
+@@ -259,18 +270,20 @@
+             'val_metrics': val_metrics,
+             'arch': args.arch,
+             'epochs_no_improve': epochs_no_improve,
++            'eval_model': 'ema' if ema is not None else 'raw',
+         }
+-        save_checkpoint(ckpts_dir / 'last.pt', model, optimizer, scaler, epoch, best_ap, extra=extra)
++        ema_state = ema.state_dict() if ema is not None else None
++        save_checkpoint(ckpts_dir / 'last.pt', model, optimizer, scaler, epoch, best_ap, extra=extra, ema_state=ema_state)
+         if (epoch + 1) % args.save_every == 0:
+-            save_checkpoint(ckpts_dir / f'epoch_{epoch}.pt', model, optimizer, scaler, epoch, best_ap, extra=extra)
++            save_checkpoint(ckpts_dir / f'epoch_{epoch}.pt', model, optimizer, scaler, epoch, best_ap, extra=extra, ema_state=ema_state)
+ 
+         if val_metrics['ap'] > best_ap:
+             best_ap = float(val_metrics['ap'])
+             epochs_no_improve = 0
+             extra['epochs_no_improve'] = epochs_no_improve
+-            save_checkpoint(ckpts_dir / 'best.pt', model, optimizer, scaler, epoch, best_ap, extra=extra)
+-            save_json(reports_dir / 'best_metrics.json', {'epoch': epoch, **val_metrics})
+-            logger.info('new best: epoch=%s ap=%.6f', epoch, best_ap)
++            save_checkpoint(ckpts_dir / 'best.pt', model, optimizer, scaler, epoch, best_ap, extra=extra, ema_state=ema_state)
++            save_json(reports_dir / 'best_metrics.json', {'epoch': epoch, 'eval_model': extra['eval_model'], **val_metrics})
++            logger.info('new best: epoch=%s ap=%.6f eval_model=%s', epoch, best_ap, extra['eval_model'])
+         else:
+             epochs_no_improve += 1
+             if epochs_no_improve >= args.patience:
+--- a/README.md
++++ b/README.md
+@@ -710,3 +710,8 @@
+ bash scripts/eval_subset.sh
+ ```
+ 
++
++
++## EMA
++
++训练时可加 `--ema --ema-decay 0.9998`。启用后，验证和 `best.pt` 会默认使用 EMA 权重。

@@ -738,3 +738,8 @@ bash scripts/train_linear.sh
 bash scripts/eval_subset.sh
 ```
 
+
+
+## EMA
+
+训练时可加 `--ema --ema-decay 0.9998`。启用后，验证和 `best.pt` 会默认使用 EMA 权重。
