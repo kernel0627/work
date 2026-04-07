@@ -7,3 +7,5 @@ pandas>=2.2
 tqdm>=4.66
 gdown>=5.2.0
 pyyaml>=6.0.2
+
+tensorboard>=2.16

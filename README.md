@@ -26,6 +26,34 @@ bash scripts/train_linear.sh
 bash scripts/eval_subset.sh
 ```
 
+### TensorBoard
+
+训练时会自动把 TensorBoard 日志写到：
+
+```text
+runs/你的实验名/tensorboard/
+```
+
+查看命令：
+
+```bash
+tensorboard --logdir runs --port 6006 --bind_all
+```
+
+如果你本地做 SSH 端口转发：
+
+```bash
+ssh -L 6006:127.0.0.1:6006 用户名@服务器IP
+```
+
+然后浏览器打开 `http://127.0.0.1:6006`。
+
+评测结果也会额外写到：
+
+```text
+eval_results/你的结果目录/tensorboard/
+```
+
 ---
 
 ## 2. `.sh` 是什么，怎么用

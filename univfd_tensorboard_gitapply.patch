@@ -1,0 +1,213 @@
+--- requirements.txt
++++ requirements.txt
+@@ -7,3 +7,5 @@
+ tqdm>=4.66
+ gdown>=5.2.0
+ pyyaml>=6.0.2
++
++tensorboard>=2.16
+--- README.md
++++ README.md
+@@ -26,6 +26,34 @@
+ bash scripts/eval_subset.sh
+ ```
+ 
++### TensorBoard
++
++训练时会自动把 TensorBoard 日志写到：
++
++```text
++runs/你的实验名/tensorboard/
++```
++
++查看命令：
++
++```bash
++tensorboard --logdir runs --port 6006 --bind_all
++```
++
++如果你本地做 SSH 端口转发：
++
++```bash
++ssh -L 6006:127.0.0.1:6006 用户名@服务器IP
++```
++
++然后浏览器打开 `http://127.0.0.1:6006`。
++
++评测结果也会额外写到：
++
++```text
++eval_results/你的结果目录/tensorboard/
++```
++
+ ---
+ 
+ ## 2. `.sh` 是什么，怎么用
+--- src/train.py
++++ src/train.py
+@@ -11,6 +11,11 @@
+ from torch.utils.data import DataLoader
+ from tqdm import tqdm
+ 
++try:
++    from torch.utils.tensorboard import SummaryWriter
++except Exception:
++    SummaryWriter = None
++
+ from .augment import AugmentConfig, build_eval_transform, build_train_transform
+ from .datasets import RealFakeFolderDataset
+ from .models import build_model
+@@ -88,6 +93,8 @@
+     p.add_argument('--resume', type=str, default=None)
+     p.add_argument('--save-every', type=int, default=1)
+     p.add_argument('--patience', type=int, default=5)
++    p.add_argument('--no-tensorboard', action='store_true')
++    p.add_argument('--tb-log-steps', type=int, default=50)
+     return p.parse_args()
+ 
+ 
+@@ -98,6 +105,7 @@
+     out_dir = ensure_dir(args.output_dir)
+     logs_dir = ensure_dir(out_dir / 'logs')
+     ckpts_dir = ensure_dir(out_dir / 'ckpts')
++    tb_dir = ensure_dir(out_dir / 'tensorboard')
+     plots_dir = ensure_dir(out_dir / 'plots')
+     reports_dir = ensure_dir(out_dir / 'reports')
+     logger = setup_logger(logs_dir / 'console.log', name=f'train_{Path(args.output_dir).name}')
+@@ -105,6 +113,12 @@
+     save_json(reports_dir / 'args.json', vars(args))
+     save_json(reports_dir / 'env.json', env_info())
+ 
++    writer = None
++    if not args.no_tensorboard and SummaryWriter is not None:
++        writer = SummaryWriter(log_dir=str(tb_dir))
++    elif not args.no_tensorboard and SummaryWriter is None:
++        logger.warning('tensorboard writer unavailable; install tensorboard to enable it')
++
+     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
+     logger.info(f'device={device}')
+ 
+@@ -181,8 +195,16 @@
+     }
+     save_json(reports_dir / 'meta.json', meta)
+     logger.info(f'meta={meta}')
++    logger.info(f'tensorboard_dir={tb_dir}')
++
++    if writer is not None:
++        writer.add_text('run/output_dir', str(out_dir))
++        writer.add_text('run/arch', args.arch)
++        writer.add_text('run/train_root', str(args.train_root))
++        writer.add_text('run/val_root', str(args.val_root))
+ 
+     metrics_csv = logs_dir / 'train_history.csv'
++    global_step = start_epoch * max(len(train_loader), 1)
+ 
+     for epoch in range(start_epoch, args.epochs):
+         model.train()
+@@ -207,7 +229,12 @@
+             bs = images.size(0)
+             running_loss += float(loss.item()) * bs
+             n_seen += bs
++            global_step += 1
+             prog.set_postfix(loss=f'{running_loss / max(n_seen, 1):.4f}')
++            if writer is not None and args.tb_log_steps > 0 and global_step % args.tb_log_steps == 0:
++                writer.add_scalar('train/batch_loss', float(loss.item()), global_step)
++                writer.add_scalar('train/running_loss', running_loss / max(n_seen, 1), global_step)
++                writer.add_scalar('train/lr_step', float(optimizer.param_groups[0]['lr']), global_step)
+ 
+         train_seconds = time.time() - train_compute_start
+         train_loss = running_loss / max(n_seen, 1)
+@@ -242,6 +269,20 @@
+         append_csv(metrics_csv, row)
+         plot_history(metrics_csv, plots_dir)
+ 
++        if writer is not None:
++            writer.add_scalar('epoch/train_loss', train_loss, epoch)
++            writer.add_scalar('epoch/lr', lr, epoch)
++            writer.add_scalar('epoch/gpu_mem_mb', gpu_mb, epoch)
++            writer.add_scalar('val/ap', row['ap'], epoch)
++            writer.add_scalar('val/roc_auc', row['roc_auc'], epoch)
++            writer.add_scalar('val/acc', row['acc'], epoch)
++            writer.add_scalar('val/best_acc', row['best_acc'], epoch)
++            writer.add_scalar('val/real_acc', row['real_acc'], epoch)
++            writer.add_scalar('val/fake_acc', row['fake_acc'], epoch)
++            writer.add_scalar('time/train_seconds', train_seconds, epoch)
++            writer.add_scalar('time/eval_seconds', eval_seconds, epoch)
++            writer.add_scalar('time/epoch_seconds', total_seconds, epoch)
++
+         logger.info(
+             'epoch=%s train_loss=%.6f ap=%.6f roc_auc=%.6f acc=%.6f best_acc=%.6f best_t=%.3f gpu_mem_mb=%.1f epoch_s=%.1f',
+             epoch,
+@@ -291,6 +332,10 @@
+     save_json(reports_dir / 'final_report.json', summary)
+     logger.info(f'final_report={summary}')
+ 
++    if writer is not None:
++        writer.add_text('final_report/json', str(summary))
++        writer.close()
++
+ 
+ if __name__ == '__main__':
+     main()
+--- src/eval.py
++++ src/eval.py
+@@ -9,6 +9,11 @@
+ from torch.utils.data import DataLoader
+ from tqdm import tqdm
+ 
++try:
++    from torch.utils.tensorboard import SummaryWriter
++except Exception:
++    SummaryWriter = None
++
+ from .augment import build_eval_transform
+ from .datasets import RealFakeFolderDataset
+ from .models import build_model
+@@ -38,6 +43,7 @@
+     p.add_argument('--num-workers', type=int, default=4)
+     p.add_argument('--amp', action='store_true')
+     p.add_argument('--output-dir', type=str, default='./eval_results')
++    p.add_argument('--no-tensorboard', action='store_true')
+     return p.parse_args()
+ 
+ 
+@@ -73,7 +79,12 @@
+     args = parse_args()
+     out_dir = ensure_dir(args.output_dir)
+     plots_dir = ensure_dir(out_dir / 'plots')
++    tb_dir = ensure_dir(out_dir / 'tensorboard')
+     logger = setup_logger(out_dir / 'eval.log', name=f'eval_{Path(args.output_dir).name}')
++    writer = None
++    if not args.no_tensorboard and SummaryWriter is not None:
++        writer = SummaryWriter(log_dir=str(tb_dir))
++
+     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+ 
+     built = build_model(args.arch)
+@@ -105,6 +116,12 @@
+         all_rows.append(row)
+         plot_pr_curve(y_true, y_prob, plots_dir / f'pr_{source}.png', title=f'PR curve - {source}')
+         plot_roc_curve(y_true, y_prob, plots_dir / f'roc_{source}.png', title=f'ROC curve - {source}')
++        if writer is not None:
++            writer.add_scalar('per_source/ap', row['ap'], len(all_rows))
++            writer.add_scalar('per_source/roc_auc', row['roc_auc'], len(all_rows))
++            writer.add_scalar('per_source/acc', row['acc'], len(all_rows))
++            writer.add_scalar('per_source/best_acc', row['best_acc'], len(all_rows))
++            writer.add_text(f'per_source/{source}', str(row))
+         logger.info(
+             'source=%s n=%s ap=%.6f roc_auc=%.6f acc=%.6f best_acc=%.6f best_t=%.3f',
+             source,
+@@ -130,6 +147,13 @@
+     plot_bar([r['source'] for r in all_rows], [float(r['acc']) for r in all_rows], plots_dir / 'acc_by_source.png', 'Acc@0.5 by source', 'Accuracy')
+     plot_bar([r['source'] for r in all_rows], [float(r['best_acc']) for r in all_rows], plots_dir / 'best_acc_by_source.png', 'Best-threshold Acc by source', 'Accuracy')
+ 
++    if writer is not None:
++        for k in ['ap', 'roc_auc', 'acc', 'best_acc', 'real_acc', 'fake_acc']:
++            if k in summary:
++                writer.add_scalar(f'summary/{k}', float(summary[k]), 0)
++        writer.add_text('summary/json', str(summary))
++        writer.close()
++
+     logger.info(f'summary={summary}')
+ 
+ 

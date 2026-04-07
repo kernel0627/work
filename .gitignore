@@ -9,3 +9,5 @@ logs/
 runs/
 eval_results/
 datasets/
+.venv/
+.idea/

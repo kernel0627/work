@@ -11,6 +11,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception:
+    SummaryWriter = None
+
 from .augment import AugmentConfig, build_eval_transform, build_train_transform
 from .datasets import RealFakeFolderDataset
 from .models import build_model
@@ -88,6 +93,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--resume', type=str, default=None)
     p.add_argument('--save-every', type=int, default=1)
     p.add_argument('--patience', type=int, default=5)
+    p.add_argument('--no-tensorboard', action='store_true')
+    p.add_argument('--tb-log-steps', type=int, default=50)
     return p.parse_args()
 
 
@@ -98,12 +105,19 @@ def main() -> None:
     out_dir = ensure_dir(args.output_dir)
     logs_dir = ensure_dir(out_dir / 'logs')
     ckpts_dir = ensure_dir(out_dir / 'ckpts')
+    tb_dir = ensure_dir(out_dir / 'tensorboard')
     plots_dir = ensure_dir(out_dir / 'plots')
     reports_dir = ensure_dir(out_dir / 'reports')
     logger = setup_logger(logs_dir / 'console.log', name=f'train_{Path(args.output_dir).name}')
 
     save_json(reports_dir / 'args.json', vars(args))
     save_json(reports_dir / 'env.json', env_info())
+
+    writer = None
+    if not args.no_tensorboard and SummaryWriter is not None:
+        writer = SummaryWriter(log_dir=str(tb_dir))
+    elif not args.no_tensorboard and SummaryWriter is None:
+        logger.warning('tensorboard writer unavailable; install tensorboard to enable it')
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     logger.info(f'device={device}')
@@ -181,8 +195,16 @@ def main() -> None:
     }
     save_json(reports_dir / 'meta.json', meta)
     logger.info(f'meta={meta}')
+    logger.info(f'tensorboard_dir={tb_dir}')
+
+    if writer is not None:
+        writer.add_text('run/output_dir', str(out_dir))
+        writer.add_text('run/arch', args.arch)
+        writer.add_text('run/train_root', str(args.train_root))
+        writer.add_text('run/val_root', str(args.val_root))
 
     metrics_csv = logs_dir / 'train_history.csv'
+    global_step = start_epoch * max(len(train_loader), 1)
 
     for epoch in range(start_epoch, args.epochs):
         model.train()
@@ -207,7 +229,12 @@ def main() -> None:
             bs = images.size(0)
             running_loss += float(loss.item()) * bs
             n_seen += bs
+            global_step += 1
             prog.set_postfix(loss=f'{running_loss / max(n_seen, 1):.4f}')
+            if writer is not None and args.tb_log_steps > 0 and global_step % args.tb_log_steps == 0:
+                writer.add_scalar('train/batch_loss', float(loss.item()), global_step)
+                writer.add_scalar('train/running_loss', running_loss / max(n_seen, 1), global_step)
+                writer.add_scalar('train/lr_step', float(optimizer.param_groups[0]['lr']), global_step)
 
         train_seconds = time.time() - train_compute_start
         train_loss = running_loss / max(n_seen, 1)
@@ -241,6 +268,20 @@ def main() -> None:
         }
         append_csv(metrics_csv, row)
         plot_history(metrics_csv, plots_dir)
+
+        if writer is not None:
+            writer.add_scalar('epoch/train_loss', train_loss, epoch)
+            writer.add_scalar('epoch/lr', lr, epoch)
+            writer.add_scalar('epoch/gpu_mem_mb', gpu_mb, epoch)
+            writer.add_scalar('val/ap', row['ap'], epoch)
+            writer.add_scalar('val/roc_auc', row['roc_auc'], epoch)
+            writer.add_scalar('val/acc', row['acc'], epoch)
+            writer.add_scalar('val/best_acc', row['best_acc'], epoch)
+            writer.add_scalar('val/real_acc', row['real_acc'], epoch)
+            writer.add_scalar('val/fake_acc', row['fake_acc'], epoch)
+            writer.add_scalar('time/train_seconds', train_seconds, epoch)
+            writer.add_scalar('time/eval_seconds', eval_seconds, epoch)
+            writer.add_scalar('time/epoch_seconds', total_seconds, epoch)
 
         logger.info(
             'epoch=%s train_loss=%.6f ap=%.6f roc_auc=%.6f acc=%.6f best_acc=%.6f best_t=%.3f gpu_mem_mb=%.1f epoch_s=%.1f',
@@ -290,6 +331,10 @@ def main() -> None:
     })
     save_json(reports_dir / 'final_report.json', summary)
     logger.info(f'final_report={summary}')
+
+    if writer is not None:
+        writer.add_text('final_report/json', str(summary))
+        writer.close()
 
 
 if __name__ == '__main__':

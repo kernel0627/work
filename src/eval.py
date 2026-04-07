@@ -9,6 +9,11 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception:
+    SummaryWriter = None
+
 from .augment import build_eval_transform
 from .datasets import RealFakeFolderDataset
 from .models import build_model
@@ -38,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--num-workers', type=int, default=4)
     p.add_argument('--amp', action='store_true')
     p.add_argument('--output-dir', type=str, default='./eval_results')
+    p.add_argument('--no-tensorboard', action='store_true')
     return p.parse_args()
 
 
@@ -73,7 +79,12 @@ def main() -> None:
     args = parse_args()
     out_dir = ensure_dir(args.output_dir)
     plots_dir = ensure_dir(out_dir / 'plots')
+    tb_dir = ensure_dir(out_dir / 'tensorboard')
     logger = setup_logger(out_dir / 'eval.log', name=f'eval_{Path(args.output_dir).name}')
+    writer = None
+    if not args.no_tensorboard and SummaryWriter is not None:
+        writer = SummaryWriter(log_dir=str(tb_dir))
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     built = build_model(args.arch)
@@ -105,6 +116,12 @@ def main() -> None:
         all_rows.append(row)
         plot_pr_curve(y_true, y_prob, plots_dir / f'pr_{source}.png', title=f'PR curve - {source}')
         plot_roc_curve(y_true, y_prob, plots_dir / f'roc_{source}.png', title=f'ROC curve - {source}')
+        if writer is not None:
+            writer.add_scalar('per_source/ap', row['ap'], len(all_rows))
+            writer.add_scalar('per_source/roc_auc', row['roc_auc'], len(all_rows))
+            writer.add_scalar('per_source/acc', row['acc'], len(all_rows))
+            writer.add_scalar('per_source/best_acc', row['best_acc'], len(all_rows))
+            writer.add_text(f'per_source/{source}', str(row))
         logger.info(
             'source=%s n=%s ap=%.6f roc_auc=%.6f acc=%.6f best_acc=%.6f best_t=%.3f',
             source,
@@ -129,6 +146,13 @@ def main() -> None:
     plot_bar([r['source'] for r in all_rows], [float(r['ap']) for r in all_rows], plots_dir / 'ap_by_source.png', 'AP by source', 'AP')
     plot_bar([r['source'] for r in all_rows], [float(r['acc']) for r in all_rows], plots_dir / 'acc_by_source.png', 'Acc@0.5 by source', 'Accuracy')
     plot_bar([r['source'] for r in all_rows], [float(r['best_acc']) for r in all_rows], plots_dir / 'best_acc_by_source.png', 'Best-threshold Acc by source', 'Accuracy')
+
+    if writer is not None:
+        for k in ['ap', 'roc_auc', 'acc', 'best_acc', 'real_acc', 'fake_acc']:
+            if k in summary:
+                writer.add_scalar(f'summary/{k}', float(summary[k]), 0)
+        writer.add_text('summary/json', str(summary))
+        writer.close()
 
     logger.info(f'summary={summary}')
 
