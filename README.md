@@ -121,32 +121,24 @@ tensorboard --logdir runs --port 6006 --bind_all
 - 数据集范围：`stylegan`、`biggan`、`ldm_200`、`dalle`
 - 去重规则：`clip_subset/per_source_results.csv` 中历史重复行不纳入展示，仅保留最新一轮口径
 
-### 平均指标总览（4 个 source 平均）
+### 结果总表（按 model 与 source 展开）
 
-| Model | Checkpoint | Weights | mean_ap | mean_roc_auc | mean_acc | mean_best_acc | mean_real_acc | mean_fake_acc |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| clip_linear | `runs/clip_vitl14_progan/ckpts/best.pt` | ema | 0.9826585777146504 | 0.9811578869849208 | 0.9030633345852112 | 0.9336438407611418 | 0.9803729344016024 | 0.82575373476882 |
-| resnet50 | `runs/resnet50_progan/ckpts/best.pt` | raw | 0.8493586272719814 | 0.8514771428157693 | 0.6771609914872307 | 0.7857408195626774 | 0.9727496244366549 | 0.3815723585378067 |
+下表按 `model -> source` 展示，`AVG` 表示 `stylegan`、`biggan`、`ldm_200`、`dalle` 4 个 source 的平均值。
 
-### clip_linear 分数据集核心结果
-
-| source | n_samples | ap | roc_auc | acc | best_acc | real_acc | fake_acc |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| stylegan | 11982 | 0.9621 | 0.9597 | 0.7800 | 0.8836 | 0.9945 | 0.5655 |
-| biggan | 4000 | 0.9932 | 0.9930 | 0.9613 | 0.9630 | 0.9690 | 0.9535 |
-| ldm_200 | 2000 | 0.9947 | 0.9941 | 0.9625 | 0.9645 | 0.9790 | 0.9460 |
-| dalle | 2000 | 0.9806 | 0.9778 | 0.9085 | 0.9235 | 0.9790 | 0.8380 |
-
-### resnet50 分数据集核心结果
-
-| source | n_samples | ap | roc_auc | acc | best_acc | real_acc | fake_acc |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| stylegan | 11982 | 0.9829 | 0.9823 | 0.7626 | 0.9200 | 0.9990 | 0.5263 |
-| biggan | 4000 | 0.9139 | 0.9264 | 0.7430 | 0.8505 | 0.9620 | 0.5240 |
-| ldm_200 | 2000 | 0.7396 | 0.7556 | 0.5810 | 0.6855 | 0.9650 | 0.1970 |
-| dalle | 2000 | 0.7611 | 0.7415 | 0.6220 | 0.6870 | 0.9650 | 0.2790 |
+| model | source | ap (%) | acc (%) | real_acc (%) | fake_acc (%) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| clip_linear | stylegan | 96.21 | 78.00 | 99.45 | 56.55 |
+| clip_linear | biggan | 99.32 | 96.13 | 96.90 | 95.35 |
+| clip_linear | ldm_200 | 99.47 | 96.25 | 97.90 | 94.60 |
+| clip_linear | dalle | 98.06 | 90.85 | 97.90 | 83.80 |
+| clip_linear | AVG | 98.27 | 90.31 | 98.04 | 82.58 |
+| resnet50 | stylegan | 98.29 | 76.26 | 99.90 | 52.63 |
+| resnet50 | biggan | 91.39 | 74.30 | 96.20 | 52.40 |
+| resnet50 | ldm_200 | 73.96 | 58.10 | 96.50 | 19.70 |
+| resnet50 | dalle | 76.11 | 62.20 | 96.50 | 27.90 |
+| resnet50 | AVG | 84.94 | 67.72 | 97.27 | 38.16 |
 
 展示结论（简版）：
 
-- `clip_linear` 在 4 个数据集上的整体表现更均衡，平均指标更高。
-- `resnet50` 在 `real_acc` 上保持较高，但 `fake_acc` 偏低，跨生成器场景下对伪造样本召回不足。
+- `clip_linear` 在 4 个 source 上整体更均衡，除 `stylegan` 外，在其余数据集上的 `Acc` 和 `fake_acc` 都更强。
+- `resnet50` 的 `real_acc` 依然整体较高，但在 `ldm_200` 和 `dalle` 上的 `fake_acc` 明显偏低，跨生成器泛化更弱。
