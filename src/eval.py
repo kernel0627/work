@@ -75,6 +75,21 @@ def evaluate_one(model, loader, device: torch.device, amp: bool) -> Tuple[Dict[s
     return metrics, y_true_np, y_prob_np
 
 
+def _load_eval_weights(model: torch.nn.Module, checkpoint: dict) -> str:
+    ema_state = checkpoint.get('ema')
+    if isinstance(ema_state, dict) and ema_state.get('ema_state_dict') is not None:
+        model.load_state_dict(ema_state['ema_state_dict'], strict=True)
+        return 'ema'
+    return 'raw'
+
+
+def _require_dataset_root(path: Path, source: str, kind: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"resolved {kind}_root for source '{source}' does not exist: {path}")
+    if not path.is_dir():
+        raise NotADirectoryError(f"resolved {kind}_root for source '{source}' is not a directory: {path}")
+
+
 def main() -> None:
     args = parse_args()
     out_dir = ensure_dir(args.output_dir)
@@ -90,18 +105,44 @@ def main() -> None:
     built = build_model(args.arch)
     model = built.model.to(device)
     ckpt = load_checkpoint(args.checkpoint, model=model, optimizer=None, scaler=None, map_location=device)
+    weight_source = _load_eval_weights(model, ckpt)
+    logger.info(
+        'checkpoint=%s ckpt_epoch=%s weights=%s device=%s',
+        args.checkpoint,
+        ckpt.get('epoch'),
+        weight_source,
+        device,
+    )
     tf = build_eval_transform(norm=built.norm)
 
     csv_path = out_dir / 'per_source_results.csv'
     all_rows = []
     for source in args.sources:
         pair = resolve_official_eval_pair(args.data_root, source)
-        ds = RealFakeFolderDataset(
-            real_root=pair['real_root'],
-            fake_root=pair['fake_root'],
-            source=source,
-            transform=tf,
+        real_root = Path(pair['real_root'])
+        fake_root = Path(pair['fake_root'])
+        logger.info(
+            'source=%s layout=%s real_root=%s fake_root=%s',
+            source,
+            pair.get('layout', 'default'),
+            real_root,
+            fake_root,
         )
+        _require_dataset_root(real_root, source, 'real')
+        _require_dataset_root(fake_root, source, 'fake')
+
+        try:
+            ds = RealFakeFolderDataset(
+                real_root=real_root,
+                fake_root=fake_root,
+                source=source,
+                transform=tf,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"resolved dataset for source '{source}' is empty. "
+                f"real_root='{real_root}', fake_root='{fake_root}'"
+            ) from exc
         loader = DataLoader(
             ds,
             batch_size=args.batch_size,
@@ -139,6 +180,7 @@ def main() -> None:
         'arch': args.arch,
         'sources': args.sources,
         'ckpt_epoch': ckpt.get('epoch'),
+        'weights': weight_source,
     })
     append_csv(out_dir / 'summary.csv', summary)
     save_json(out_dir / 'summary.json', summary)

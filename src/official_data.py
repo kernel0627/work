@@ -5,6 +5,42 @@ from pathlib import Path
 DEFAULT_REPRO_SOURCES = ["stylegan", "biggan", "ldm_200", "dalle"]
 
 
+def _has_nested_class_dirs(base: Path) -> bool:
+    if not base.is_dir():
+        return False
+    for child in base.iterdir():
+        if not child.is_dir():
+            continue
+        if (child / "0_real").is_dir() and (child / "1_fake").is_dir():
+            return True
+        if (child / "real").is_dir() and (child / "fake").is_dir():
+            return True
+    return False
+
+
+def _resolve_cnn_source(base: Path, source: str) -> dict:
+    flat_real = base / "0_real"
+    flat_fake = base / "1_fake"
+    if flat_real.is_dir() and flat_fake.is_dir():
+        return {"source": source, "real_root": flat_real, "fake_root": flat_fake, "layout": "flat"}
+
+    named_real = base / "real"
+    named_fake = base / "fake"
+    if named_real.is_dir() and named_fake.is_dir():
+        return {"source": source, "real_root": named_real, "fake_root": named_fake, "layout": "flat_named"}
+
+    if _has_nested_class_dirs(base):
+        return {"source": source, "real_root": base, "fake_root": base, "layout": "nested"}
+
+    if not base.exists():
+        raise FileNotFoundError(f"source '{source}' expected dataset directory '{base}', but it does not exist")
+
+    raise FileNotFoundError(
+        f"source '{source}' has unsupported layout under '{base}'. "
+        "Expected either direct 0_real/1_fake folders or category subdirectories containing them."
+    )
+
+
 def resolve_official_eval_pair(data_root: str | Path, source: str) -> dict:
     root = Path(data_root)
     source = source.lower()
@@ -24,7 +60,7 @@ def resolve_official_eval_pair(data_root: str | Path, source: str) -> dict:
     }
     if source in cnn_sources:
         base = cnn_sources[source]
-        return {"source": source, "real_root": base / "0_real", "fake_root": base / "1_fake"}
+        return _resolve_cnn_source(base, source)
 
     diffusion_root = root / "diffusion_datasets"
     diffusion_pairs = {

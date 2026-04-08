@@ -56,6 +56,8 @@ class RealFakeFolderDataset(Dataset):
             return [root / x for x in self.categories if (root / x).exists()]
         if any((root / x).is_dir() for x in ["0_real", "1_fake", "real", "fake"]):
             return [root]
+        if root.exists() and root.is_dir() and any(_is_img(p) for p in root.iterdir()):
+            return [root]
         subs = [p for p in root.iterdir()] if root.exists() else []
         subs = [p for p in subs if p.is_dir()]
         return sorted(subs)
