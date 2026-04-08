@@ -10,27 +10,34 @@
 
 训练使用 `ProGAN`，默认评估子集包括 `stylegan`、`biggan`、`ldm_200` 和 `dalle`。
 
-## 概览
+README 当前分为两部分：
+
+- 上半段：安装、训练、评估命令
+- 下半段：当前最佳结果和展示
+
+## 使用说明
+
+### 数据与目录概览
 
 - 训练数据：`datasets/train/progan`
 - 验证数据：`datasets/val/progan`
 - 测试数据：`datasets/test/*`
 - diffusion 数据：`datasets/diffusion_datasets/*`
 
-## 环境配置
+### 环境配置
 
 ```bash
 bash setup_conda.sh
 conda activate research_env
 ```
 
-## 数据下载
+### 数据下载
 
 ```bash
 bash downloaddata.sh --root ./datasets --parts train val test diffusion
 ```
 
-## 训练
+### 训练
 
 训练 CLIP 线性探针：
 
@@ -46,7 +53,28 @@ bash scripts/train_resnet.sh
 
 训练支持 `EMA`。启用后，训练内验证使用 EMA 权重；checkpoint 里的 `model` 仍然是原始模型权重，EMA 权重单独保存在 `ema` 字段。
 
-## 评估
+训练输出目录：
+
+- `runs/clip_vitl14_progan/`
+- `runs/resnet50_progan/`
+
+主要文件：
+
+- `logs/console.log`
+- `logs/train_history.csv`
+- `ckpts/last.pt`
+- `ckpts/best.pt`
+- `ckpts/epoch_*.pt`
+- `plots/train_loss.png`
+- `plots/val_metrics.png`
+- `reports/args.json`
+- `reports/env.json`
+- `reports/meta.json`
+- `reports/best_metrics.json`
+- `reports/final_report.json`
+- `tensorboard/`
+
+### 评估
 
 ```bash
 bash scripts/eval_subset.sh
@@ -59,7 +87,32 @@ bash scripts/eval_subset.sh
 - `ldm_200`
 - `dalle`
 
-## Eval 展示（2026-04-08）
+评估输出目录：
+
+- `eval_results/clip_subset/`
+- `eval_results/resnet_subset/`
+
+主要文件：
+
+- `per_source_results.csv`
+- `summary.csv`
+- `summary.json`
+- `plots/ap_by_source.png`
+- `plots/acc_by_source.png`
+- `plots/best_acc_by_source.png`
+- `plots/pr_<source>.png`
+- `plots/roc_<source>.png`
+- `tensorboard/`
+
+TensorBoard 启动命令：
+
+```bash
+tensorboard --logdir runs --port 6006 --bind_all
+```
+
+## 当前最佳结果与展示
+
+### Eval 展示（2026-04-08）
 
 展示口径（固定）：
 
@@ -97,49 +150,3 @@ bash scripts/eval_subset.sh
 
 - `clip_linear` 在 4 个数据集上的整体表现更均衡，平均指标更高。
 - `resnet50` 在 `real_acc` 上保持较高，但 `fake_acc` 偏低，跨生成器场景下对伪造样本召回不足。
-
-## 结果
-
-训练输出目录：
-
-- `runs/clip_vitl14_progan/`
-- `runs/resnet50_progan/`
-
-主要文件：
-
-- `logs/console.log`
-- `logs/train_history.csv`
-- `ckpts/last.pt`
-- `ckpts/best.pt`
-- `ckpts/epoch_*.pt`
-- `plots/train_loss.png`
-- `plots/val_metrics.png`
-- `reports/args.json`
-- `reports/env.json`
-- `reports/meta.json`
-- `reports/best_metrics.json`
-- `reports/final_report.json`
-- `tensorboard/`
-
-评估输出目录：
-
-- `eval_results/clip_subset/`
-- `eval_results/resnet_subset/`
-
-主要文件：
-
-- `per_source_results.csv`
-- `summary.csv`
-- `summary.json`
-- `plots/ap_by_source.png`
-- `plots/acc_by_source.png`
-- `plots/best_acc_by_source.png`
-- `plots/pr_<source>.png`
-- `plots/roc_<source>.png`
-- `tensorboard/`
-
-TensorBoard 启动命令：
-
-```bash
-tensorboard --logdir runs --port 6006 --bind_all
-```
