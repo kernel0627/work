@@ -112,14 +112,19 @@ tensorboard --logdir runs --port 6006 --bind_all
 
 ## 当前最佳结果与展示
 
-### Eval 展示（2026-04-08）
+### Eval 展示（截至 2026-04-10）
 
-展示口径（固定）：
+展示口径（按模型引用最新可用评估）：
 
-- 日志口径：`logs/eval_subset.log` 最新一次综合评估（2026-04-08 16:07~16:09）
-- 模型范围：`clip_linear` 与 `resnet50`
+- 日志口径：
+  - `clip_linear`、`resnet50`：`logs/eval_subset.log` 最新一次综合评估（2026-04-08 16:07~16:09）
+  - `clip_1nn`：`logs/eval_linear_nn.log` 最新一次评估（2026-04-10 17:10:47~17:13:38）
+- 模型范围：`clip_linear`、`clip_1nn` 与 `resnet50`
 - 数据集范围：`stylegan`、`biggan`、`ldm_200`、`dalle`
-- 去重规则：`clip_subset/per_source_results.csv` 中历史重复行不纳入展示，仅保留最新一轮口径
+- 去重规则：
+  - `eval_results/clip_subset/per_source_results.csv` 中历史重复行不纳入展示，仅保留最新一轮口径
+  - `eval_results/clip_1nn_subset/per_source_results.csv` 中历史重复行不纳入展示，仅保留最后 4 行作为最新一轮口径
+  - `eval_results/clip_1nn_subset/summary.csv` 仅保留最后 1 行作为 `AVG` 展示口径
 
 ### 结果总表（按 model 与 source 展开）
 
@@ -132,6 +137,11 @@ tensorboard --logdir runs --port 6006 --bind_all
 | clip_linear | ldm_200 | 99.47 | 96.25 | 97.90 | 94.60 |
 | clip_linear | dalle | 98.06 | 90.85 | 97.90 | 83.80 |
 | clip_linear | AVG | 98.27 | 90.31 | 98.04 | 82.58 |
+| clip_1nn | stylegan | 94.65 | 83.38 | 95.43 | 71.32 |
+| clip_1nn | biggan | 94.70 | 85.95 | 86.55 | 85.35 |
+| clip_1nn | ldm_200 | 98.38 | 93.00 | 90.20 | 95.80 |
+| clip_1nn | dalle | 93.12 | 85.00 | 90.20 | 79.80 |
+| clip_1nn | AVG | 95.21 | 86.83 | 90.59 | 83.07 |
 | resnet50 | stylegan | 98.29 | 76.26 | 99.90 | 52.63 |
 | resnet50 | biggan | 91.39 | 74.30 | 96.20 | 52.40 |
 | resnet50 | ldm_200 | 73.96 | 58.10 | 96.50 | 19.70 |
@@ -140,5 +150,6 @@ tensorboard --logdir runs --port 6006 --bind_all
 
 展示结论（简版）：
 
-- `clip_linear` 在 4 个 source 上整体更均衡，除 `stylegan` 外，在其余数据集上的 `Acc` 和 `fake_acc` 都更强。
-- `resnet50` 的 `real_acc` 依然整体较高，但在 `ldm_200` 和 `dalle` 上的 `fake_acc` 明显偏低，跨生成器泛化更弱。
+- `clip_linear` 仍然是 4 个 source 上整体最强的平均表现。
+- `clip_1nn` 明显强于 `resnet50`，且在 `stylegan` 上的 `acc` 与 `fake_acc` 优于 `clip_linear`。
+- `clip_1nn` 的平均 `fake_acc` 略高于 `clip_linear`，但 `real_acc` 更低，所以整体 `AVG acc` 仍落后于 `clip_linear`。
