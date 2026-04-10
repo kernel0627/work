@@ -43,7 +43,7 @@ def _require_dataset_root(path: Path, source: str, kind: str) -> None:
 def _load_artifact(path: str | Path) -> dict:
     import torch
 
-    from .clip_1nn import CLIP_1NN_ARCH
+    from src.clip_1nn import CLIP_1NN_ARCH
 
     artifact = torch.load(path, map_location="cpu")
     if artifact.get("arch") != CLIP_1NN_ARCH:
@@ -61,8 +61,8 @@ def main() -> None:
     import numpy as np
     import torch
 
-    from .augment import build_eval_transform
-    from .clip_1nn import (
+    from src.augment import build_eval_transform
+    from src.clip_1nn import (
         CLIP_1NN_ARCH,
         CLIP_BACKBONE,
         CLIP_NORM,
@@ -72,9 +72,9 @@ def main() -> None:
         extract_features,
         score_1nn_features,
     )
-    from .datasets import RealFakeFolderDataset
-    from .official_data import resolve_official_eval_pair
-    from .utils import (
+    from src.datasets import RealFakeFolderDataset
+    from src.official_data import resolve_official_eval_pair
+    from src.utils import (
         append_csv,
         binary_metrics,
         ensure_dir,

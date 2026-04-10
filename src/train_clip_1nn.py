@@ -39,8 +39,8 @@ def main() -> None:
     import numpy as np
     import torch
 
-    from .augment import build_eval_transform
-    from .clip_1nn import (
+    from src.augment import build_eval_transform
+    from src.clip_1nn import (
         CLIP_1NN_ARCH,
         CLIP_BACKBONE,
         CLIP_NORM,
@@ -51,8 +51,8 @@ def main() -> None:
         score_1nn_features,
         split_feature_bank,
     )
-    from .datasets import RealFakeFolderDataset
-    from .utils import (
+    from src.datasets import RealFakeFolderDataset
+    from src.utils import (
         append_csv,
         binary_metrics,
         ensure_dir,

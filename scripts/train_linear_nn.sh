@@ -8,6 +8,7 @@ cd "$REPO_ROOT"
 
 mkdir -p logs runs
 export PYTHONUNBUFFERED=1
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 {
   if ! command -v conda >/dev/null 2>&1; then
