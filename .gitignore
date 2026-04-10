@@ -12,3 +12,4 @@ datasets/
 .venv/
 .idea/
 PRIVATE_NOTES.md
+runs.tar.zst
