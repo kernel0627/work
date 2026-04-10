@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--amp", action="store_true")
     p.add_argument("--output-dir", type=str, default="./eval_results/clip_1nn_subset")
     p.add_argument("--bank-chunk-size", type=int, default=DEFAULT_BANK_CHUNK_SIZE)
+    p.add_argument("--no-tensorboard", action="store_true")
     return p.parse_args()
 
 
@@ -87,12 +88,25 @@ def main() -> None:
         summarize_rows,
     )
 
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+    except Exception:
+        SummaryWriter = None
+
     out_dir = ensure_dir(args.output_dir)
     plots_dir = ensure_dir(out_dir / "plots")
+    tb_dir = ensure_dir(out_dir / "tensorboard")
     logger = setup_logger(out_dir / "eval.log", name=f"eval_{Path(args.output_dir).name}")
+
+    writer = None
+    if not args.no_tensorboard and SummaryWriter is not None:
+        writer = SummaryWriter(log_dir=str(tb_dir))
+    elif not args.no_tensorboard and SummaryWriter is None:
+        logger.warning("tensorboard writer unavailable; install tensorboard to enable it")
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     logger.info("device=%s", device)
+    logger.info("tensorboard_dir=%s", tb_dir)
 
     artifact = _load_artifact(args.checkpoint)
     real_bank = artifact["real_features"].detach().cpu().float().contiguous()
@@ -166,6 +180,12 @@ def main() -> None:
 
         plot_pr_curve(y_true, y_prob, plots_dir / f"pr_{source}.png", title=f"PR curve - {source}")
         plot_roc_curve(y_true, y_prob, plots_dir / f"roc_{source}.png", title=f"ROC curve - {source}")
+        if writer is not None:
+            writer.add_scalar("per_source/ap", float(row["ap"]), len(all_rows))
+            writer.add_scalar("per_source/roc_auc", float(row["roc_auc"]), len(all_rows))
+            writer.add_scalar("per_source/acc", float(row["acc"]), len(all_rows))
+            writer.add_scalar("per_source/best_acc", float(row["best_acc"]), len(all_rows))
+            writer.add_text(f"per_source/{source}", str(row))
         logger.info(
             "source=%s n=%s ap=%.6f roc_auc=%.6f acc=%.6f best_acc=%.6f best_t=%.3f",
             source,
@@ -212,6 +232,14 @@ def main() -> None:
         "Best-threshold Acc by source",
         "Accuracy",
     )
+
+    if writer is not None:
+        for key in ["ap", "roc_auc", "acc", "best_acc", "real_acc", "fake_acc"]:
+            summary_key = f"mean_{key}"
+            if summary_key in summary:
+                writer.add_scalar(f"summary/{key}", float(summary[summary_key]), 0)
+        writer.add_text("summary/json", str(summary))
+        writer.close()
 
     logger.info("summary=%s", summary)
 

@@ -19,6 +19,7 @@ bash scripts/train_linear_nn.sh
 - `./runs/clip_vitl14_1nn_progan/ckpts/best.pt`
 - `./runs/clip_vitl14_1nn_progan/reports/best_metrics.json`
 - `./runs/clip_vitl14_1nn_progan/logs/console.log`
+- `./runs/clip_vitl14_1nn_progan/tensorboard/`
 
 ## 评估
 
@@ -37,6 +38,7 @@ bash scripts/eval_linear_nn.sh
 - `./eval_results/clip_1nn_subset/per_source_results.csv`
 - `./eval_results/clip_1nn_subset/summary.csv`
 - `./eval_results/clip_1nn_subset/summary.json`
+- `./eval_results/clip_1nn_subset/tensorboard/`
 
 ## 直接运行 Python
 
@@ -63,4 +65,5 @@ python -m src.eval_clip_1nn \
 
 - 这套实现是 `CLIP ViT-L/14 + 1-NN`
 - 使用固定阈值 `0.5` 做主评估，同时会额外统计 best-threshold 指标
+- 默认会写 TensorBoard 日志；如不需要，可加 `--no-tensorboard`
 - 运行前需要准备好 `research_env` 环境和对应数据集

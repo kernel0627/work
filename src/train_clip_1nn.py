@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, default="./runs/clip_vitl14_1nn_progan")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--bank-chunk-size", type=int, default=DEFAULT_BANK_CHUNK_SIZE)
+    p.add_argument("--no-tensorboard", action="store_true")
     return p.parse_args()
 
 
@@ -64,9 +65,15 @@ def main() -> None:
         setup_logger,
     )
 
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+    except Exception:
+        SummaryWriter = None
+
     out_dir = ensure_dir(args.output_dir)
     logs_dir = ensure_dir(out_dir / "logs")
     ckpts_dir = ensure_dir(out_dir / "ckpts")
+    tb_dir = ensure_dir(out_dir / "tensorboard")
     plots_dir = ensure_dir(out_dir / "plots")
     reports_dir = ensure_dir(out_dir / "reports")
     logger = setup_logger(logs_dir / "console.log", name=f"train_{Path(args.output_dir).name}")
@@ -74,8 +81,15 @@ def main() -> None:
     save_json(reports_dir / "args.json", vars(args))
     save_json(reports_dir / "env.json", env_info())
 
+    writer = None
+    if not args.no_tensorboard and SummaryWriter is not None:
+        writer = SummaryWriter(log_dir=str(tb_dir))
+    elif not args.no_tensorboard and SummaryWriter is None:
+        logger.warning("tensorboard writer unavailable; install tensorboard to enable it")
+
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     logger.info("device=%s", device)
+    logger.info("tensorboard_dir=%s", tb_dir)
 
     transform = build_eval_transform(norm=CLIP_NORM)
     train_ds = RealFakeFolderDataset(
@@ -154,6 +168,23 @@ def main() -> None:
     save_json(reports_dir / "meta.json", meta)
     save_json(reports_dir / "best_metrics.json", {"split": "val", **val_metrics})
 
+    if writer is not None:
+        writer.add_text("run/output_dir", str(out_dir))
+        writer.add_text("run/arch", CLIP_1NN_ARCH)
+        writer.add_text("run/backbone", CLIP_BACKBONE)
+        writer.add_text("run/train_root", str(args.train_root))
+        writer.add_text("run/val_root", str(args.val_root))
+        writer.add_scalar("bank/train_real", int(real_features.size(0)), 0)
+        writer.add_scalar("bank/train_fake", int(fake_features.size(0)), 0)
+        writer.add_scalar("val/ap", float(val_metrics["ap"]), 0)
+        writer.add_scalar("val/roc_auc", float(val_metrics["roc_auc"]), 0)
+        writer.add_scalar("val/acc", float(val_metrics["acc"]), 0)
+        writer.add_scalar("val/best_acc", float(val_metrics["best_acc"]), 0)
+        writer.add_scalar("val/real_acc", float(val_metrics["real_acc"]), 0)
+        writer.add_scalar("val/fake_acc", float(val_metrics["fake_acc"]), 0)
+        writer.add_scalar("val/best_threshold", float(val_metrics["best_threshold"]), 0)
+        writer.add_text("val/metrics", str(val_metrics))
+
     artifact = {
         "arch": CLIP_1NN_ARCH,
         "backbone": CLIP_BACKBONE,
@@ -191,6 +222,10 @@ def main() -> None:
         val_metrics["best_acc"],
         val_metrics["best_threshold"],
     )
+
+    if writer is not None:
+        writer.add_text("final_report/json", str(final_report))
+        writer.close()
 
 
 if __name__ == "__main__":
