@@ -39,8 +39,11 @@ export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
   python -m src.train_clip_1nn \
     --train-root ./datasets/train/progan \
     --val-root ./datasets/val/progan \
+    --epochs 10 \
     --batch-size 64 \
     --num-workers 4 \
     --amp \
+    --save-every 1 \
+    --patience 5 \
     --output-dir ./runs/clip_vitl14_1nn_progan
 } 2>&1 | tee ./logs/train_linear_nn.log

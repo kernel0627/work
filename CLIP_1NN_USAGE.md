@@ -12,6 +12,7 @@ bash scripts/train_linear_nn.sh
 
 - 读取 `./datasets/train/progan`
 - 验证 `./datasets/val/progan`
+- 默认训练 `10` 轮，并使用早停 `patience=5`
 - 输出到 `./runs/clip_vitl14_1nn_progan`
 
 训练后的主要文件：
@@ -48,6 +49,9 @@ bash scripts/eval_linear_nn.sh
 python -m src.train_clip_1nn \
   --train-root ./datasets/train/progan \
   --val-root ./datasets/val/progan \
+  --epochs 10 \
+  --save-every 1 \
+  --patience 5 \
   --output-dir ./runs/clip_vitl14_1nn_progan
 ```
 
